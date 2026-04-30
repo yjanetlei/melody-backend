@@ -20,7 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SUPPORTED_FORMATS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
+SUPPORTED_FORMATS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".webm", ".mp4"}
 HAND_SPLIT_MIDI = 60
 MIN_NOTE_DURATION = 0.05
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -94,69 +94,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         tmp_path = tmp.name
         tmp.write(await file.read())
 
+    converted_path = tmp_path
+
     try:
-        _, _, note_events = predict(
-            tmp_path,
-            ICASSP_2022_MODEL_PATH,
-            onset_threshold=0.5,
-            frame_threshold=0.3,
-            minimum_note_length=MIN_NOTE_DURATION * 1000,
-            minimum_frequency=27.5,
-            maximum_frequency=4186.0,
-            melodia_trick=True,
-            multiple_pitch_bends=False,
-        )
-
-        if not note_events:
-            raise HTTPException(status_code=422, detail="No notes detected.")
-
-        tempo_bpm = estimate_tempo([float(n[0]) for n in note_events])
-
-        notes = []
-        for idx, (st, et, mp, vel, _) in enumerate(note_events):
-            dur = float(et) - float(st)
-            if dur < MIN_NOTE_DURATION:
-                continue
-            notes.append({
-                "id": idx,
-                "midi_pitch": int(mp),
-                "note_name": midi_to_note_name(int(mp)),
-                "start_time": round(float(st), 4),
-                "end_time": round(float(et), 4),
-                "duration_sec": round(dur, 4),
-                "duration_label": quantize_duration(dur, tempo_bpm),
-                "velocity": int(vel) if vel else 80,
-                "hand": assign_hand(int(mp)),
-            })
-
-        notes.sort(key=lambda n: n["start_time"])
-        rh = [n for n in notes if n["hand"] == "right"]
-        lh = [n for n in notes if n["hand"] == "left"]
-        rm = group_into_measures(rh, tempo_bpm)
-        lm = group_into_measures(lh, tempo_bpm)
-        mx = max(len(rm), len(lm))
-        while len(rm) < mx:
-            rm.append([])
-        while len(lm) < mx:
-            lm.append([])
-
-        return JSONResponse(content={
-            "status": "success",
-            "filename": file.filename,
-            "tempo_bpm": tempo_bpm,
-            "time_signature": {"numerator": 4, "denominator": 4},
-            "total_notes": len(notes),
-            "right_hand_notes": len(rh),
-            "left_hand_notes": len(lh),
-            "num_measures": mx,
-            "notes": notes,
-            "measures": {"right": rm, "left": lm},
-        })
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        # Convert webm/mp4 to wav for Basic Pitch compatibility
