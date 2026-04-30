@@ -13,26 +13,24 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Melody to Sheet Music API", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-    allow_credentials=False,
-    expose_headers=["*"],
-    max_age=3600,
-)
+@app.middleware("http")
+async def add_cors_headers(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return Response(
+            status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Max-Age": "3600",
+            }
+        )
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
 
-@app.options("/{rest_of_path:path}")
-async def preflight_handler(request: Request, rest_of_path: str):
-    return Response(
-        status_code=200,
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-        }
-    )
 SUPPORTED_FORMATS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".webm", ".mp4"}
 HAND_SPLIT_MIDI = 60
 MIN_NOTE_DURATION = 0.05
@@ -110,7 +108,6 @@ async def transcribe_audio(file: UploadFile = File(...)):
     converted_path = tmp_path
 
     try:
-        # Convert webm/mp4 to wav for Basic Pitch compatibility
         if ext in {".webm", ".mp4"}:
             converted_path = tmp_path.replace(ext, ".wav")
             os.system(f"ffmpeg -i {tmp_path} -ar 22050 -ac 1 {converted_path} -y -loglevel quiet")
